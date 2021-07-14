@@ -51,6 +51,7 @@ type Config struct {
 	CopyConcurrency int    `mapstructure:"copy_concurrency"`
 	EnsureAvailable bool   `mapstructure:"ensure_available"`
 	KeepArtifact    string `mapstructure:"keep_artifact"`
+	OnlyCopyTags    string `mapstructure:"only_copy_tags"`
 	ManifestOutput  string `mapstructure:"manifest_output"`
 
 	ctx interpolate.Context
@@ -88,6 +89,10 @@ func (p *PostProcessor) Configure(raws ...interface{}) error {
 		p.config.KeepArtifact = "true"
 	}
 
+	if len(p.config.OnlyCopyTags) == 0 {
+		p.config.OnlyCopyTags = "false"
+	}
+
 	return nil
 }
 
@@ -104,6 +109,11 @@ func (p *PostProcessor) PostProcess(
 	keepArtifactBool, err := strconv.ParseBool(p.config.KeepArtifact)
 	if err != nil {
 		return artifact, keepArtifactBool, false, err
+	}
+
+	onlyCopyTags, err := strconv.ParseBool(p.config.OnlyCopyTags)
+	if err != nil {
+		return artifact, onlyCopyTags, false, err
 	}
 
 	// Ensure we're being called from a supported builder
@@ -186,7 +196,7 @@ func (p *PostProcessor) PostProcess(
 		}
 	}
 
-	copyErrs := copyAMIs(copies, ui, p.config.ManifestOutput, p.config.CopyConcurrency)
+	copyErrs := copyAMIs(copies, ui, p.config.ManifestOutput, p.config.CopyConcurrency, p.config.OnlyCopyTags)
 	if copyErrs > 0 {
 		return artifact, true, false, fmt.Errorf(
 			"%d/%d AMI copies failed, manual reconciliation may be required", copyErrs, len(copies))
@@ -195,7 +205,7 @@ func (p *PostProcessor) PostProcess(
 	return artifact, keepArtifactBool, false, nil
 }
 
-func copyAMIs(copies []amicopy.AmiCopy, ui packer.Ui, manifestOutput string, concurrencyCount int) int32 {
+func copyAMIs(copies []amicopy.AmiCopy, ui packer.Ui, manifestOutput string, concurrencyCount int, onlyCopyTags bool) int32 {
 	// Copy execution loop
 	var (
 		copyCount    = len(copies)
@@ -225,11 +235,22 @@ func copyAMIs(copies []amicopy.AmiCopy, ui packer.Ui, manifestOutput string, con
 						*input.Encrypted,
 					),
 				)
-				if err := c.Copy(&ui); err != nil {
-					ui.Say(err.Error())
-					atomic.AddInt32(&copyErrs, 1)
-					continue
+
+
+				if onlyCopyTags == false {
+					if err := c.Copy(&ui); err != nil {
+						ui.Say(err.Error())
+						atomic.AddInt32(&copyErrs, 1)
+						continue
+					}
+				} else {
+					if err := c.Tag(&ui); err != nil {
+						ui.Say(err.Error())
+						atomic.AddInt32(&copyErrs, 1)
+						continue
+					}
 				}
+
 				output := c.Output()
 				manifest := &amicopy.AmiManifest{
 					AccountID: c.TargetAccountID(),
