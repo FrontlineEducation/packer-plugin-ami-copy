@@ -32,6 +32,7 @@ type AmiCopyImpl struct {
 	SourceImage     *ec2.Image
 	EnsureAvailable bool
 	KeepArtifact    bool
+	OnlyCopyTags    bool
 }
 
 // AmiManifest holds the data about the resulting copied image
@@ -110,6 +111,8 @@ func (ac *AmiCopyImpl) Tag() (err error) {
 		},
 		RetryDelay: (&retry.Backoff{InitialBackoff: 200 * time.Millisecond, MaxBackoff: 30 * time.Second, Multiplier: 2}).Linear,
 	}.Run(ctx, func(ctx context.Context) error {
+
+		(*ui).Say(fmt.Sprintf("Trying to copy tags from %s to %s", *ac.output.ImageId,  *image.ImageId))
 		_, err := ac.EC2.CreateTags(&ec2.CreateTagsInput{
 			Resources: []*string{ac.output.ImageId},
 			Tags:      ac.SourceImage.Tags,
